@@ -1,6 +1,7 @@
 import ast
 import contextlib
 import io
+import os
 import random
 import time
 import unittest
@@ -18,7 +19,15 @@ class SimiFeatParity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         torch.set_num_threads(2)
-        source = Path(__file__).resolve().parents[2] / "SimiFeat-main/SimiFeat-main"
+        configured = os.environ.get("SIMIFEAT_SOURCE_ROOT")
+        source = (Path(configured) if configured else
+                  Path(__file__).resolve().parents[2] / "SimiFeat-main/SimiFeat-main")
+        required_files = tuple(source / name for name in ("utils.py", "hoc.py", "main_fast.py"))
+        if not all(path.is_file() for path in required_files):
+            raise unittest.SkipTest(
+                "Upstream SimiFeat sources are optional; set SIMIFEAT_SOURCE_ROOT "
+                "to run strict parity tests."
+            )
         cls.original = dict(torch=torch, np=np, F=F, random=random, time=time,
             smp=torch.nn.Softmax(dim=0), smt=torch.nn.Softmax(dim=1),
             global_var=SimpleNamespace(set_value=lambda *args: None))
