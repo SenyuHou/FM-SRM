@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use FM-SRM, please cite this work."
+title: "Learning with Noisy Labels in Foundation Model Settings via Sample Reliability Modeling"
+type: software
+authors:
+  - family-names: Hou
+    given-names: Senyu
+  - family-names: Jiang
+    given-names: Gaoxia
+  - family-names: Wang
+    given-names: Wenjian
+repository-code: "https://github.com/SenyuHou/FM-SRM"
+date-released: 2026-09-21
+license: MIT
