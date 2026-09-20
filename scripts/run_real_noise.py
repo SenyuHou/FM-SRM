@@ -31,7 +31,7 @@ from lnl_foundation.training.robust_linear_probe import train_robust_linear_prob
 from lnl_foundation.utils import ROOT, get_device, load_config, save_json, set_seed
 
 
-METHODS = ("ours", "ce", "gce", "coteaching", "dividemix", "disc", "clipcleaner")
+METHODS = ("ours", "ce", "gce", "coteaching", "ssr", "dividemix", "disc", "clipcleaner")
 CLIP_BACKBONES = ("clip_vit_b16", "clip_vit_l14")
 
 

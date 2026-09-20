@@ -18,7 +18,7 @@ from lnl_foundation.utils import get_device, load_config
 
 METHOD = "Clean-LP"
 BACKBONE = "dinov2_vit_b14"
-SEEDS = (1, 2, 3)
+SEEDS = (1, 2, 3, 4, 5)
 DATASETS = ("cifar10", "cifar100")
 SETTINGS = ("Human", "Symm0.6", "Pairflip0.3", "Inst0.4")
 RAW_KEY = ["dataset", "backbone", "method", "seed"]
@@ -66,7 +66,7 @@ def build_summary(raw, output_path):
     actual = set(zip(raw["dataset"], raw["seed"].astype(int)))
     complete = np.isfinite(raw[["accuracy", "macro_f1", "ece_raw"]].to_numpy(dtype=float)).all()
     if actual != expected or not complete:
-        print("Clean-LP summary is waiting for all CIFAR-10/100 seeds 1, 2, 3.", flush=True)
+        print("Clean-LP summary is waiting for all CIFAR-10/100 seeds 1, 2, 3, 4, 5.", flush=True)
         return None
 
     grouped = raw.groupby("dataset").agg(

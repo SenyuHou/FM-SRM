@@ -44,23 +44,6 @@ metrics, the noise score is the negative minimum margin among the four rules,
 which is the continuous counterpart of their intersection. The original
 source is MIT licensed; see `CLIPCLEANER_LICENSE.md`.
 
-## DeFT
-
-The implementation ports phase one of DeFT. It retains the authors' OpenAI
-CLIP model, deep VPT length 20, learnable positive/negative prompts with 16
-context tokens, SGD and cosine schedule, ten epochs, clean threshold 0.5, and
-the original positive/negative losses. Synthetic settings follow
-`main_phase1.py` with one warm-up epoch. Human noise follows
-`main_real_phase1.py`, including SCE warm-up for five epochs and the additional
-positive-class argmax selection condition. The final-epoch `1 - p_clean` is
-used as the continuous noise score. The original source is MIT licensed; see
-`DEFT_LICENSE.md`.
-
-DeFT cannot use only a frozen feature cache: VPT changes intermediate visual
-tokens and its learned dual text prompts are part of the detector. The cache
-is still loaded and hashed to bind every run to the same formal FM-SRM source
-partition and CLIP backbone.
-
 ## Stage-2 learning baselines
 
 The formal entry point is `scripts/run_stage2_baseline.py`. All image encoders
@@ -79,6 +62,18 @@ The adaptation retains two independently initialized heads, small-loss sample
 selection, cross-update between heads, and the gradual forget-rate schedule
 from *Co-teaching: Robust Training of Deep Neural Networks with Extremely
 Noisy Labels* (NeurIPS 2018).
+
+### SSR
+
+The adaptation retains SSR's high-confidence label correction, class-prior-
+normalized weighted KNN sample selection, class-balanced resampling, MixUp
+cross entropy, and cosine learning-rate schedule from *SSR: An Efficient and
+Robust Framework for Learning with Unknown Label Noise* (BMVC 2022). Exact
+cosine neighbors are computed once because the shared feature extractor is
+frozen; labels and neighbor votes are updated every epoch. The optional
+feature-consistency branch of the original end-to-end encoder is not used,
+because the unified protocol permits only linear heads on cached features.
+The upstream code is MIT licensed; see `SSR_LICENSE.md`.
 
 ### DivideMix
 
@@ -108,10 +103,10 @@ falls back to FM-SRM partitions when a selection file is missing.
   (ICML 2022).
 - CLIPCleaner: *CLIPCleaner: Cleaning Noisy Labels with CLIP* (ACM MM 2024),
   MIT License.
-- DeFT: *Vision-Language Models are Strong Noisy Label Detectors* (NeurIPS
-  2024), MIT License.
 - Co-teaching: *Co-teaching: Robust Training of Deep Neural Networks with
   Extremely Noisy Labels* (NeurIPS 2018).
+- SSR: *SSR: An Efficient and Robust Framework for Learning with Unknown
+  Label Noise* (BMVC 2022), MIT License.
 - DivideMix: *DivideMix: Learning with Noisy Labels as Semi-supervised
   Learning* (ICLR 2020), MIT License.
 - DISC: *DISC: Learning From Noisy Labels via Dynamic Instance-Specific

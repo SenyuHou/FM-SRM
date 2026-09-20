@@ -83,7 +83,7 @@ def _validate_runs(runs):
         for backbone in ours["backbone"].unique()
         for dataset, names in NOISE_NAMES.items()
         for noise_name in names
-        for seed in (1, 2, 3)
+        for seed in (1, 2, 3, 4, 5)
         for ece_type in ("Raw", "Calibrated")
     }
     actual = set(ours[["backbone", "dataset", "noise_name", "seed", "ece_type"]].itertuples(

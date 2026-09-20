@@ -49,7 +49,8 @@ the JYP mapping before running the external evaluation.
 ## Example: Animal-10N
 
 Run from the FM-SRM repository. Replace `/data/Animal10N` with the actual root.
-Repeat Stage-1 and Stage-2 with `--seed 2` and `--seed 3` for three runs.
+Repeat Stage-1 and Stage-2 with `--seed 2`, `--seed 3`, `--seed 4`, and
+`--seed 5` for five runs.
 
 ```bash
 python scripts/extract_features.py --dataset animal10n --dataset_root /data/Animal10N --splits train test --set backbone=dinov2_vit_b14 --set device=cuda:0
@@ -60,7 +61,8 @@ python scripts/run_real_noise.py --phase stage2 --method ce --dataset animal10n 
 
 ## Example: WebVision-50
 
-Repeat Stage-1 and Stage-2 with `--seed 2` and `--seed 3` for three runs.
+Repeat Stage-1 and Stage-2 with `--seed 2`, `--seed 3`, `--seed 4`, and
+`--seed 5` for five runs.
 ILSVRC12 features are extracted once. The Stage-2 command uses WebVision
 validation after each epoch, reloads its best checkpoint, then evaluates the
 labeled ILSVRC2012 validation subset exactly once at the end.
@@ -73,9 +75,9 @@ python scripts/run_real_noise.py --phase stage2 --method ours --dataset webvisio
 python scripts/run_real_noise.py --phase stage2 --method ce --dataset webvision --dataset_root /data/WebVision --ilsvrc12_root /data/ILSVRC12 --backbone dinov2_vit_b14 --seed 1 --device cuda:0
 ```
 
-`--method` also accepts `gce`, `coteaching`, `dividemix`, `disc`, and
-`clipcleaner`. SSR is not implemented in the current FM-SRM registry. For
-CLIPCleaner, first extract CLIP features, then run the selection phase:
+`--method` also accepts `gce`, `coteaching`, `ssr`, `dividemix`, `disc`, and
+`clipcleaner`. For CLIPCleaner, first extract CLIP features, then run the
+selection phase:
 
 ```bash
 python scripts/run_real_noise.py --phase clipcleaner --dataset animal10n --dataset_root /data/Animal10N --backbone clip_vit_b16 --seed 1 --device cuda:0

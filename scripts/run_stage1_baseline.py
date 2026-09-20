@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from lnl_foundation.backbones.frozen import canonical_backbone_name
 from lnl_foundation.baselines.clipcleaner import CLIPCleaner, zero_shot_prediction
-from lnl_foundation.baselines.deft import DeFTConfig, run_deft
 from lnl_foundation.data.datasets import load_cifar_base
 from lnl_foundation.data.noise import HUMAN_CHOICES, human_noise_key
 from lnl_foundation.features import feature_cache_path, load_features
@@ -29,7 +28,7 @@ from lnl_foundation.utils import get_device, load_config, save_json, set_seed
 
 SOURCE_PROTOCOL = FORMAL_PARTITION_PROTOCOL
 BASELINE_PROTOCOL = "stage1_clip_baselines_v1"
-METHOD_NAMES = {"clipcleaner": "CLIPCleaner", "deft": "DeFT"}
+METHOD_NAMES = {"clipcleaner": "CLIPCleaner"}
 CLIP_BACKBONES = ("clip_vit_b16", "clip_vit_l14")
 SYNTHETIC_SETTINGS = ("symmetric_0.6", "pairflip_0.3", "instance_0.4")
 SUMMARY_METRICS = ("precision", "recall", "f1", "auroc", "auprc")
@@ -40,7 +39,7 @@ def expected_settings(dataset, human_noise_type):
     return (f"human_{human}", *SYNTHETIC_SETTINGS)
 
 
-def load_source_runs(root, dataset, backbone, feature_sha256, cfg, human_noise_type):
+def load_source_runs(root, dataset, backbone, feature_sha256, cfg, human_noise_type, seeds):
     expected = expected_settings(dataset, human_noise_type)
     candidates = {}
     for path in sorted((root / dataset).glob("*/**/metrics.json")):
@@ -51,14 +50,14 @@ def load_source_runs(root, dataset, backbone, feature_sha256, cfg, human_noise_t
             or row.get("tau_local") != cfg["local_posterior_threshold"]
             or row.get("knn_k") != cfg["knn_k"]
             or row.get("noise_name") not in expected
-            or int(row.get("seed", -1)) not in (1, 2, 3)
+            or int(row.get("seed", -1)) not in seeds
         ):
             continue
         key = (row["noise_name"], int(row["seed"]))
         partition_path = path.with_name("partition.csv")
         if partition_path.exists():
             candidates.setdefault(key, []).append((path, row))
-    required = {(name, seed) for name in expected for seed in (1, 2, 3)}
+    required = {(name, seed) for name in expected for seed in seeds}
     missing = sorted(required - set(candidates))
     if missing:
         raise ValueError(
@@ -155,8 +154,7 @@ def main():
     parser.add_argument("--set", dest="overrides", action="append", default=[])
     parser.add_argument("--human_noise_type", choices=HUMAN_CHOICES)
     parser.add_argument("--device")
-    parser.add_argument("--batch_size", type=int, default=64, help="DeFT only; upstream default is 64.")
-    parser.add_argument("--num_workers", type=int)
+    parser.add_argument("--seeds", nargs="+", type=int)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
@@ -165,6 +163,7 @@ def main():
     if backbone not in CLIP_BACKBONES:
         parser.error("Stage-one CLIP baselines only support CLIP ViT-B/16 and ViT-L/14.")
     device = get_device(args.device or cfg["device"])
+    seeds = tuple(dict.fromkeys(args.seeds or cfg["seeds"]))
     method = METHOD_NAMES[args.method]
     base = load_cifar_base(args.dataset, cfg["data_root"], download=False)
     clean = np.asarray(base.targets, dtype=np.int64)
@@ -173,14 +172,14 @@ def main():
     feature_sha256 = hashlib.sha256(features.numpy().tobytes()).hexdigest()
     generalization_root = Path(cfg["output_dir"])
     sources = load_source_runs(
-        generalization_root, args.dataset, backbone, feature_sha256, cfg, args.human_noise_type
+        generalization_root, args.dataset, backbone, feature_sha256, cfg, args.human_noise_type, seeds
     )
     output_root = generalization_root / "baselines"
     variant_root = output_root / args.method / args.dataset / backbone / feature_sha256[:12]
     prediction_zero = checkpoint = None
 
     for noise_name in expected_settings(args.dataset, args.human_noise_type):
-        for seed in (1, 2, 3):
+        for seed in seeds:
             source_path, source, labels, label_sha256 = sources[(noise_name, seed)]
             if len(labels) != len(clean):
                 raise ValueError(f"Unexpected source-label count: {source_path.with_name('partition.csv')}")
@@ -198,58 +197,30 @@ def main():
                 continue
 
             set_seed(seed)
-            if args.method == "clipcleaner":
-                if prediction_zero is None:
-                    print(
-                        f"Computing CLIPCleaner zero-shot descriptor predictions for {args.dataset}",
-                        flush=True,
-                    )
-                    prediction_zero, checkpoint = zero_shot_prediction(
-                        features, args.dataset, backbone, device
-                    )
-                result = CLIPCleaner(theta_gmm=0.5, theta_cons=0.8).detect(
-                    features, labels, prediction_zero
+            if prediction_zero is None:
+                print(
+                    f"Computing CLIPCleaner zero-shot descriptor predictions for {args.dataset}",
+                    flush=True,
                 )
-                method_parameters = {
-                    "theta_gmm": 0.5,
-                    "theta_consistency": 0.8,
-                    "selection": "intersection_of_four_upstream_rules",
-                    "clip_checkpoint": checkpoint,
-                }
-            else:
-                deft_config = DeFTConfig(batch_size=args.batch_size)
-                result = run_deft(
-                    base.data,
-                    labels,
-                    args.dataset,
-                    backbone,
-                    seed,
-                    device,
-                    num_workers=args.num_workers if args.num_workers is not None else cfg["num_workers"],
-                    config=deft_config,
-                    human=noise_name.startswith("human_"),
+                prediction_zero, checkpoint = zero_shot_prediction(
+                    features, args.dataset, backbone, device
                 )
-                method_parameters = {
-                    "epochs": deft_config.epochs,
-                    "warmup": result["warmup"],
-                    "batch_size": deft_config.batch_size,
-                    "learning_rate": deft_config.learning_rate,
-                    "weight_decay": deft_config.weight_decay,
-                    "momentum": deft_config.momentum,
-                    "vpt_len": deft_config.vpt_len,
-                    "n_ctx": deft_config.n_ctx,
-                    "clip_checkpoint": result["checkpoint"],
-                }
+            result = CLIPCleaner(theta_gmm=0.5, theta_cons=0.8).detect(
+                features, labels, prediction_zero
+            )
+            method_parameters = {
+                "theta_gmm": 0.5,
+                "theta_consistency": 0.8,
+                "selection": "intersection_of_four_upstream_rules",
+                "clip_checkpoint": checkpoint,
+            }
 
             predicted_noisy = ~result["predicted_clean"]
             truth = labels != clean
             metrics = detection_metrics(truth, predicted_noisy, result["noise_score"])
             row = {
                 "comparison_protocol": BASELINE_PROTOCOL,
-                "method_protocol": (
-                    "clipcleaner_combined_selection_v1"
-                    if args.method == "clipcleaner" else "deft_phase1_v1"
-                ),
+                "method_protocol": "clipcleaner_combined_selection_v1",
                 "dataset": args.dataset,
                 "backbone": backbone,
                 "method": method,

@@ -83,9 +83,11 @@ def main():
     parser.add_argument("--dataset", choices=["cifar10", "cifar100"])
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--set", dest="overrides", action="append", default=[])
+    parser.add_argument("--seeds", nargs="+", type=int)
     parser.add_argument("--summarize_only", action="store_true")
     args = parser.parse_args()
     cfg = load_config(args.config, args.overrides)
+    seeds = tuple(dict.fromkeys(args.seeds or cfg["seeds"]))
     cfg["backbone"] = canonical_backbone_name(cfg["backbone"])
     root = Path(cfg["output_dir"])
     if args.summarize_only:
@@ -112,7 +114,7 @@ def main():
         "instance_0.4",
     )
     for name in noise_names:
-        for seed in (1, 2, 3):
+        for seed in seeds:
             path, row, match_type = resolve_saved_partition(
                 root,
                 args.dataset,
@@ -130,7 +132,7 @@ def main():
     print(f"{args.dataset}: computing exact k=10 neighbors on {tuple(features.shape)} fixed features", flush=True)
     neighbors = nearest(features.to(cfg["device"]), 10)
     output = root / "simifeat" / args.dataset / cfg["backbone"] / digest[:12]
-    for seed in [1, 2, 3]:
+    for seed in seeds:
         label_sets, metadata = {}, {}
         for path, row, match_type in source_rows:
             if row["seed"] != seed:

@@ -6,7 +6,7 @@ batch_size: 256
 num_workers: 4
 device: auto
 hf_endpoint: ""
-seeds: [1, 2, 3]
+seeds: [1, 2, 3, 4, 5]
 global_posterior_threshold: 0.8
 local_posterior_threshold: 0.5
 knn_k: 20

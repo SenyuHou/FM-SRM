@@ -12,7 +12,7 @@ from lnl_foundation.training.real_evaluation import evaluate_classification
 from lnl_foundation.utils import set_seed
 
 
-METHODS = ("ce", "gce", "coteaching", "dividemix", "disc", "clipcleaner")
+METHODS = ("ce", "gce", "coteaching", "ssr", "dividemix", "disc", "clipcleaner")
 
 
 @dataclass
@@ -159,6 +159,124 @@ def _train_coteaching(train_features, noisy_labels, test_features, test_labels, 
             epoch_hook(epoch, models)
     return _finish(models, test_features, test_labels, device, {
         "n_train": len(features), "forget_rate": float(forget_rate), "n_heads": 2,
+    }, compute_ece=compute_ece)
+
+
+@torch.no_grad()
+def _ssr_neighbor_indices(features, k, device, block_size=512):
+    """Precompute SSR's exact cosine KNN once for a frozen feature bank."""
+    normalized = F.normalize(features.to(device), dim=1)
+    count = len(normalized)
+    k = min(int(k), count)
+    if k < 1:
+        raise ValueError("SSR requires at least one training sample.")
+    neighbors = []
+    for start in range(0, count, int(block_size)):
+        similarity = normalized[start:start + int(block_size)] @ normalized.T
+        neighbors.append(similarity.topk(k=k, dim=1, largest=True).indices.cpu())
+    return torch.cat(neighbors)
+
+
+@torch.no_grad()
+def _ssr_select(neighbor_indices, labels, num_classes, theta_selection):
+    """Apply SSR's class-prior-normalized KNN agreement selection rule."""
+    labels = torch.as_tensor(labels, dtype=torch.long).cpu()
+    neighbor_labels = labels[neighbor_indices]
+    scores = torch.zeros((len(labels), num_classes), dtype=torch.float32)
+    scores.scatter_add_(1, neighbor_labels, torch.ones_like(neighbor_labels, dtype=torch.float32))
+    class_count = torch.bincount(labels, minlength=num_classes).float().clamp_min(1e-10)
+    scores = scores / (class_count / class_count.sum())[None, :]
+    observed_score = scores.gather(1, labels[:, None]).squeeze(1)
+    right_score = observed_score / scores.max(1).values.clamp_min(1e-12)
+    return torch.where(right_score >= float(theta_selection))[0], right_score
+
+
+def _ssr_balanced_order(selected, labels, num_classes, sample_count):
+    """Cycle an upstream-style class-balanced pool for one SSR epoch."""
+    selected = torch.as_tensor(selected, dtype=torch.long).cpu()
+    labels = torch.as_tensor(labels, dtype=torch.long).cpu()
+    per_class = [selected[labels[selected] == class_id] for class_id in range(num_classes)]
+    per_class = [indices for indices in per_class if len(indices)]
+    if not per_class:
+        raise ValueError("SSR selected no samples for training.")
+    maximum = max(len(indices) for indices in per_class)
+    balanced = []
+    for indices in per_class:
+        repeats = (maximum + len(indices) - 1) // len(indices)
+        draw = indices.repeat(repeats)[:maximum]
+        draw = draw[torch.randperm(len(draw))]
+        balanced.append(draw)
+    pool = torch.cat(balanced)
+    repeats = (int(sample_count) + len(pool) - 1) // len(pool)
+    pool = pool.repeat(repeats)
+    return pool[torch.randperm(len(pool))[:int(sample_count)]]
+
+
+def _train_ssr(train_features, noisy_labels, test_features, test_labels, num_classes,
+               seed, device, cfg, epoch_hook=None, compute_ece=True):
+    """SSR sample selection and relabelling adapted to a frozen feature bank."""
+    set_seed(seed)
+    model = _head(train_features.shape[1], num_classes, device)
+    optimizer = _optimizer(model, cfg)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=int(cfg["epochs"]),
+        eta_min=float(cfg["learning_rate"]) * float(cfg["minimum_learning_rate_ratio"]),
+    )
+    features = train_features.to(device)
+    original_labels = noisy_labels.cpu()
+    neighbors = _ssr_neighbor_indices(
+        train_features, cfg["knn_k"], device, cfg.get("knn_block_size", 512)
+    )
+    selected = torch.arange(len(train_features))
+    relabelled = torch.zeros(len(train_features), dtype=torch.bool)
+    modified_labels = original_labels.clone()
+    progress = tqdm(range(int(cfg["epochs"])), desc="SSR", unit="epoch", dynamic_ncols=True)
+    for epoch in progress:
+        with torch.no_grad():
+            probabilities = F.softmax(_logits(model, train_features, device), dim=1)
+            confidence, prediction = probabilities.max(1)
+            relabelled = confidence > float(cfg["theta_relabel"])
+            modified_labels = original_labels.clone()
+            modified_labels[relabelled] = prediction[relabelled]
+            selected, _ = _ssr_select(
+                neighbors, modified_labels, num_classes, cfg["theta_selection"]
+            )
+        if len(selected) == 0:
+            raise ValueError("SSR selected no samples; check theta_selection and feature cache.")
+        order = _ssr_balanced_order(selected, modified_labels, num_classes, len(train_features))
+        labels_device = modified_labels.to(device)
+        model.train()
+        total = 0.0
+        for batch in _epoch_batches(order, int(cfg["batch_size"]), device):
+            first = _view(features[batch], cfg["feature_dropout"])
+            second = _view(features[batch], cfg["feature_dropout"])
+            targets = F.one_hot(labels_device[batch], num_classes=num_classes).float()
+            inputs = torch.cat((first, second))
+            targets = torch.cat((targets, targets))
+            beta = np.random.beta(float(cfg["mixup_alpha"]), float(cfg["mixup_alpha"]))
+            mix = max(beta, 1 - beta)
+            permutation = torch.randperm(len(inputs), device=device)
+            logits = model(mix * inputs + (1 - mix) * inputs[permutation])
+            mixed_targets = mix * targets + (1 - mix) * targets[permutation]
+            loss = -(mixed_targets * F.log_softmax(logits, dim=1)).sum(1).mean()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            total += float(loss.detach()) * len(batch)
+        scheduler.step()
+        progress.set_postfix(
+            loss=f"{total / len(order):.4f}", selected=len(selected), relabelled=int(relabelled.sum())
+        )
+        if epoch_hook is not None:
+            epoch_hook(epoch, [model])
+    return _finish([model], test_features, test_labels, device, {
+        "n_train": len(train_features),
+        "final_selected": int(len(selected)),
+        "final_relabelled": int(relabelled.sum()),
+        "theta_selection": float(cfg["theta_selection"]),
+        "theta_relabel": float(cfg["theta_relabel"]),
+        "knn_k": int(cfg["knn_k"]),
     }, compute_ece=compute_ece)
 
 
@@ -417,6 +535,11 @@ def train_stage2_baseline(method, train_features, noisy_labels, test_features, t
         return _train_coteaching(
             train_features, noisy_labels, test_features, test_labels, num_classes, seed,
             device, method_cfg, forget, epoch_hook=epoch_hook, compute_ece=compute_ece,
+        )
+    if method == "ssr":
+        return _train_ssr(
+            train_features, noisy_labels, test_features, test_labels, num_classes, seed,
+            device, method_cfg, epoch_hook=epoch_hook, compute_ece=compute_ece,
         )
     if method == "dividemix":
         return _train_dividemix(

@@ -25,6 +25,7 @@ METHOD_NAMES = {
     "ce": "CE",
     "gce": "GCE",
     "coteaching": "Co-teaching",
+    "ssr": "SSR",
     "dividemix": "DivideMix",
     "disc": "DISC",
     "clipcleaner": "CLIPCleaner",

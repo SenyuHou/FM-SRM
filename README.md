@@ -41,7 +41,7 @@ The synthetic-noise experiments support CIFAR-10 and CIFAR-100 with:
 - Symmetric noise at rate 0.6
 - Pairflip noise at rate 0.3
 - Instance-dependent noise at rate 0.4
-- Seeds 1, 2, and 3
+- Seeds 1, 2, 3, 4, and 5
 
 The real-world experiments support Animal-10N and WebVision/ILSVRC2012. Dataset preparation is described in [docs/real_noise.md](docs/real_noise.md).
 
@@ -80,7 +80,7 @@ python scripts/run_partition_generalization.py \
   --set device=cuda:0
 ```
 
-This command runs the four noise settings and three random seeds. The formal partition uses `tau_g=0.8`, `tau_l=0.5`, and `k=20`.
+This command runs the four noise settings and five random seeds. The formal partition uses `tau_g=0.8`, `tau_l=0.5`, and `k=20`.
 
 ### 3.3 Stages 2 and 3: robust linear probe and calibration
 
@@ -108,7 +108,7 @@ python scripts/run_simifeat.py \
   --set backbone=vit_b16_imagenet
 ```
 
-CLIPCleaner and DeFT are available for CLIP backbones:
+CLIPCleaner is available for CLIP backbones:
 
 ```bash
 python scripts/run_stage1_baseline.py \
@@ -116,17 +116,11 @@ python scripts/run_stage1_baseline.py \
   --dataset cifar10 \
   --backbone clip_vit_b16 \
   --device cuda:0
-
-python scripts/run_stage1_baseline.py \
-  --method deft \
-  --dataset cifar10 \
-  --backbone clip_vit_b16 \
-  --device cuda:0
 ```
 
 ### 4.2 Stage-2 robust learning
 
-The unified frozen-feature linear-probe protocol includes CE, GCE, Co-teaching, DivideMix, DISC, and CLIPCleaner:
+The unified frozen-feature linear-probe protocol includes CE, GCE, Co-teaching, SSR, DivideMix, DISC, and CLIPCleaner:
 
 ```bash
 python scripts/run_stage2_baseline.py \
@@ -136,7 +130,9 @@ python scripts/run_stage2_baseline.py \
   --device cuda:0
 ```
 
-Replace `ce` with `gce`, `coteaching`, `dividemix`, `disc`, or `clipcleaner`. A single command runs four noise settings with three seeds. CLIPCleaner requires a previously saved CLIPCleaner Stage-1 selection; it does not use the FM-SRM partition.
+Replace `ce` with `gce`, `coteaching`, `ssr`, `dividemix`, `disc`, or `clipcleaner`. A single command runs four noise settings with five seeds. CLIPCleaner requires a previously saved CLIPCleaner Stage-1 selection; it does not use the FM-SRM partition.
+
+The paper-aligned defaults use seeds `1-5`, `tau_g=0.8`, `tau_l=0.5`, `k=20`, Hard-sample GCE `q=0.7`, prototype temperature `T_p=0.1`, anchor fraction `kappa=0.1`, and calibration target `xi=0.995`.
 
 Baseline-specific hyperparameters are centralized in [configs/stage2_baselines.yaml](configs/stage2_baselines.yaml). Adaptation details and upstream acknowledgements are documented in [docs/baselines/README.md](docs/baselines/README.md).
 
@@ -188,7 +184,7 @@ If you find this work useful, please consider citing:
 
 ## Acknowledgements
 
-This repository provides unified frozen-feature reproductions or adaptations of SimiFeat, CLIPCleaner, DeFT, Co-teaching, DivideMix, and DISC. Their original repositories and licenses are listed in [docs/baselines/README.md](docs/baselines/README.md). Please cite the corresponding papers when using those implementations.
+This repository provides unified frozen-feature reproductions or adaptations of SimiFeat, CLIPCleaner, Co-teaching, SSR, DivideMix, and DISC. Their original repositories and licenses are listed in [docs/baselines/README.md](docs/baselines/README.md). Please cite the corresponding papers when using those implementations.
 
 ## License
 

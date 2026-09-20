@@ -33,6 +33,21 @@ coteaching:
   beta1_final: 0.1
   human_forget_rate: 0.4
 
+ssr:
+  epochs: 300
+  batch_size: 128
+  optimizer: sgd
+  learning_rate: 0.02
+  momentum: 0.9
+  weight_decay: 0.0005
+  theta_selection: 1.0
+  theta_relabel: 0.9
+  knn_k: 200
+  knn_block_size: 512
+  mixup_alpha: 4.0
+  feature_dropout: 0.05
+  minimum_learning_rate_ratio: 0.02
+
 dividemix:
   epochs: 300
   batch_size: 64
