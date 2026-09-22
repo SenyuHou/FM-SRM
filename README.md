@@ -43,7 +43,7 @@ The synthetic-noise experiments support CIFAR-10 and CIFAR-100 with:
 - Instance-dependent noise at rate 0.4
 - Seeds 1, 2, 3, 4, and 5
 
-The real-world experiments support Animal-10N and WebVision/ILSVRC2012. Dataset preparation is described in [docs/real_noise.md](docs/real_noise.md).
+The real-world experiments support Animal-10N and WebVision/ILSVRC2012 through `scripts/run_real_noise.py`.
 
 Supported frozen backbones:
 
@@ -134,7 +134,7 @@ Replace `ce` with `gce`, `coteaching`, `ssr`, `dividemix`, `disc`, or `clipclean
 
 The paper-aligned defaults use seeds `1-5`, `tau_g=0.8`, `tau_l=0.5`, `k=20`, Hard-sample GCE `q=0.7`, prototype temperature `T_p=0.1`, anchor fraction `kappa=0.1`, and calibration target `xi=0.995`.
 
-Baseline-specific hyperparameters are centralized in [configs/stage2_baselines.yaml](configs/stage2_baselines.yaml). Adaptation details and upstream acknowledgements are documented in [docs/baselines/README.md](docs/baselines/README.md).
+Baseline-specific hyperparameters are centralized in [configs/stage2_baselines.yaml](configs/stage2_baselines.yaml). Upstream attribution and license information are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## 5. Reusing Existing Feature Caches
 
@@ -184,7 +184,7 @@ If you find this work useful, please consider citing:
 
 ## Acknowledgements
 
-This repository provides unified frozen-feature reproductions or adaptations of SimiFeat, CLIPCleaner, Co-teaching, SSR, DivideMix, and DISC. Their original repositories and licenses are listed in [docs/baselines/README.md](docs/baselines/README.md). Please cite the corresponding papers when using those implementations.
+This repository provides unified frozen-feature reproductions or adaptations of SimiFeat, CLIPCleaner, Co-teaching, SSR, DivideMix, and DISC. Their upstream attribution is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Please cite the corresponding papers when using those implementations.
 
 ## License
 

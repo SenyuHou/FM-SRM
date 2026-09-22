@@ -5,6 +5,8 @@
 /checkpoints/
 /tmp/
 /logs/
+/docs/
+/tests/
 *.pt
 *.pth
 *.ckpt
