@@ -1,4 +1,4 @@
-"""Real-noise Stage-1 partition, CLIPCleaner selection, and Stage-2 probes."""
+"""FM-SRM Stage-1 partitioning and Stage-2 training on real-noise datasets."""
 
 import argparse
 import hashlib
@@ -10,12 +10,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from lnl_foundation.backbones.frozen import canonical_backbone_name
-from lnl_foundation.baselines.clipcleaner import CLIPCleaner, zero_shot_prediction
 from lnl_foundation.data.real_noise import REAL_DATASET_META, load_real_base
 from lnl_foundation.features import feature_cache_path, load_real_features, real_manifest_sha256
 from lnl_foundation.partition.global_local_gmm import CLEAN, HARD, NOISY, GlobalLocalGMMPartitioner
@@ -23,16 +21,11 @@ from lnl_foundation.partition.classwise_global_local_gmm import (
     ClasswiseGlobalLocalGMMPartitioner, DEFAULT_CLEAN_THRESHOLD,
     DEFAULT_GLOBAL_NOISY_THRESHOLD, DEFAULT_LOCAL_NOISY_THRESHOLD,
 )
-from lnl_foundation.training.baseline_linear_probe import train_stage2_baseline
 from lnl_foundation.training.real_evaluation import (
     BestValidationCheckpoint, evaluate_classification, linear_logits, load_best_heads,
 )
 from lnl_foundation.training.robust_linear_probe import train_robust_linear_probe
-from lnl_foundation.utils import ROOT, get_device, load_config, save_json, set_seed
-
-
-METHODS = ("ours", "ce", "gce", "coteaching", "ssr", "dividemix", "disc", "clipcleaner")
-CLIP_BACKBONES = ("clip_vit_b16", "clip_vit_l14")
+from lnl_foundation.utils import get_device, load_config, save_json
 
 
 def _sha(features):
@@ -182,56 +175,6 @@ def _stage1(cfg, args, features, labels, backbone, feature_hash, num_classes):
           f"classes without Clean={sum(count == 0 for count in class_counts['clean'])} -> {target}", flush=True)
 
 
-def _selection_dir(cfg, dataset, backbone, feature_hash, seed):
-    return (Path(cfg["output_dir"]) / "baselines" / "clipcleaner" / dataset /
-            backbone / feature_hash[:12] / "real" / f"seed_{seed}")
-
-
-def _clipcleaner(cfg, args, features, labels, backbone, feature_hash, device):
-    if backbone not in CLIP_BACKBONES:
-        raise ValueError("CLIPCleaner only supports clip_vit_b16 or clip_vit_l14.")
-    target = _selection_dir(cfg, args.dataset, backbone, feature_hash, args.seed)
-    if (target / "predictions.csv").exists() and not args.force:
-        _read_selection(target / "predictions.csv", labels)
-        print(f"Reusing CLIPCleaner selection: {target}")
-        return
-    set_seed(args.seed)
-    zero_prediction, checkpoint = zero_shot_prediction(features, args.dataset, backbone, device)
-    result = CLIPCleaner().detect(features, labels.numpy(), zero_prediction)
-    target.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({
-        "index": np.arange(len(labels)), "noisy_label": labels.numpy(),
-        "predicted_noisy": ~result["predicted_clean"],
-        "noise_score": result["noise_score"],
-    }).to_csv(target / "predictions.csv", index=False)
-    save_json(target / "metrics.json", {
-        "protocol": "real_noise_clipcleaner_v1", "dataset": args.dataset,
-        "backbone": backbone, "seed": args.seed, "feature_sha256": feature_hash,
-        "clip_checkpoint": checkpoint, "n_selected_clean": int(result["predicted_clean"].sum()),
-        "n_predicted_noisy": int((~result["predicted_clean"]).sum()),
-    })
-    print(f"CLIPCleaner selected {int(result['predicted_clean'].sum())} -> {target}", flush=True)
-
-
-def _read_selection(path, labels):
-    if not path.exists():
-        raise FileNotFoundError(f"Missing CLIPCleaner Stage-1 selection: {path}. Run --phase clipcleaner first.")
-    frame = pd.read_csv(path)
-    if not np.array_equal(frame["index"].to_numpy(), np.arange(len(labels))):
-        raise ValueError(f"Selection sample indices differ from feature manifest: {path}")
-    if not np.array_equal(frame["noisy_label"].to_numpy(), labels.numpy()):
-        raise ValueError(f"Selection labels differ from dataset manifest: {path}")
-    values = frame["predicted_noisy"]
-    if values.dtype == object:
-        values = values.astype(str).str.lower().map({"true": True, "false": False})
-    if values.isna().any():
-        raise ValueError(f"Invalid predicted_noisy values: {path}")
-    selected = np.flatnonzero(~values.to_numpy(dtype=bool))
-    if not len(selected):
-        raise ValueError(f"CLIPCleaner selected no clean samples: {path}")
-    return torch.as_tensor(selected, dtype=torch.long)
-
-
 def _write_summary(runs, path):
     fields = ["accuracy", "top5", "macro_f1"]
     if runs["dataset"].iloc[0] == "webvision":
@@ -248,25 +191,16 @@ def _write_summary(runs, path):
 
 
 def _stage2(cfg, args, features, labels, backbone, feature_hash, num_classes, device):
-    method = args.method
+    method = "ours"
     output = (Path(cfg["output_dir"]).parent / "real_noise" / "stage2" /
               method / args.dataset / backbone / feature_hash[:12])
-    if method == "ours" and args.partition_mode == "classwise":
+    if args.partition_mode == "classwise":
         variant = _partition_dir(
             cfg, args.dataset, backbone, feature_hash, args.seed, args.partition_mode,
             (args.clean_threshold, args.global_noisy_threshold, args.local_noisy_threshold),
         ).parent.name
         output = output / ("partition_classwise" if variant.startswith("real_classwise_g0.8_l0.5_")
                            else f"partition_{variant}")
-    baseline_cfg = None
-    if method != "ours":
-        config_path = Path(args.baseline_config)
-        with (config_path if config_path.is_absolute() else ROOT / config_path).open(encoding="utf-8") as source:
-            baseline_cfg = yaml.safe_load(source)
-        method_config = json.dumps(baseline_cfg[method], sort_keys=True)
-        output = output / f"config_{hashlib.sha256(method_config.encode('utf-8')).hexdigest()[:12]}"
-    if method == "clipcleaner":
-        output = output / f"selection_{args.clipcleaner_source_backbone}_{args.clipcleaner_source_hash[:12]}"
     runs_path = output / "runs.csv"
     rows = pd.read_csv(runs_path).to_dict("records") if runs_path.exists() else []
     prior = next((row for row in rows if int(row["seed"]) == args.seed), None)
@@ -295,47 +229,29 @@ def _stage2(cfg, args, features, labels, backbone, feature_hash, num_classes, de
     else:
         evaluation_features, evaluation_labels = _load_split(cfg, args, backbone, "test")
         selector = None
-    selected = None
-    partition = margin = None
-    if method == "ours":
-        partition_path = _partition_dir(
-            cfg, args.dataset, backbone, feature_hash, args.seed, args.partition_mode,
-            (args.clean_threshold, args.global_noisy_threshold, args.local_noisy_threshold),
-        ) / "partition.csv"
-        partition, margin = _read_partition(partition_path, labels)
-        from lnl_foundation.training.robust_linear_probe import LinearProbeConfig
-        result = train_robust_linear_probe(
-            features, labels, partition, evaluation_features, evaluation_labels,
-            num_classes, args.seed, device, config=LinearProbeConfig(),
-            global_margin=margin, epoch_hook=selector, calibrate=False,
-        )
-        metrics = {key: value for key, value in result.items() if key != "_artifacts"}
-    else:
-        if method == "clipcleaner":
-            selection_path = _selection_dir(
-                cfg, args.dataset, args.clipcleaner_source_backbone,
-                args.clipcleaner_source_hash or feature_hash, args.seed
-            ) / "predictions.csv"
-            selected = _read_selection(selection_path, labels)
-        result = train_stage2_baseline(
-            method, features, labels, evaluation_features, evaluation_labels,
-            num_classes, args.dataset, "real", None, args.seed, device, baseline_cfg,
-            selected_indices=selected, epoch_hook=selector, compute_ece=False,
-        )
-        metrics = result.metrics
+    partition_path = _partition_dir(
+        cfg, args.dataset, backbone, feature_hash, args.seed, args.partition_mode,
+        (args.clean_threshold, args.global_noisy_threshold, args.local_noisy_threshold),
+    ) / "partition.csv"
+    partition, margin = _read_partition(partition_path, labels)
+    from lnl_foundation.training.robust_linear_probe import LinearProbeConfig
+    result = train_robust_linear_probe(
+        features, labels, partition, evaluation_features, evaluation_labels,
+        num_classes, args.seed, device, config=LinearProbeConfig(),
+        global_margin=margin, epoch_hook=selector, calibrate=False,
+    )
+    metrics = {key: value for key, value in result.items() if key != "_artifacts"}
     row = {
         "protocol": "real_noise_stage2_v1", "method": method, "dataset": args.dataset,
         "backbone": backbone, "feature_sha256": feature_hash, "seed": args.seed,
-        "partition_mode": args.partition_mode if method == "ours" else None,
-        "clean_threshold": args.clean_threshold if method == "ours" and args.partition_mode == "classwise" else None,
-        "global_noisy_threshold": args.global_noisy_threshold if method == "ours" and args.partition_mode == "classwise" else None,
-        "local_noisy_threshold": args.local_noisy_threshold if method == "ours" and args.partition_mode == "classwise" else None,
-        "n_train": len(selected) if selected is not None else len(labels),
-        "n_clean": int((partition == CLEAN).sum()) if partition is not None else None,
-        "n_hard": int((partition == HARD).sum()) if partition is not None else None,
-        "n_noisy": int((partition == NOISY).sum()) if partition is not None else None,
-        "selection_backbone": args.clipcleaner_source_backbone if method == "clipcleaner" else None,
-        "selection_feature_sha256": args.clipcleaner_source_hash if method == "clipcleaner" else None,
+        "partition_mode": args.partition_mode,
+        "clean_threshold": args.clean_threshold if args.partition_mode == "classwise" else None,
+        "global_noisy_threshold": args.global_noisy_threshold if args.partition_mode == "classwise" else None,
+        "local_noisy_threshold": args.local_noisy_threshold if args.partition_mode == "classwise" else None,
+        "n_train": len(labels),
+        "n_clean": int((partition == CLEAN).sum()),
+        "n_hard": int((partition == HARD).sum()),
+        "n_noisy": int((partition == NOISY).sum()),
     }
     if args.dataset == "webvision":
         if selector.best_epoch is None:
@@ -395,8 +311,7 @@ def _stage2(cfg, args, features, labels, backbone, feature_hash, num_classes, de
 
 def main():
     parser = argparse.ArgumentParser(description="Real-noise frozen-feature experiments; one phase per command.")
-    parser.add_argument("--phase", required=True, choices=("stage1", "clipcleaner", "stage2"))
-    parser.add_argument("--method", choices=METHODS, default="ours", help="Stage-2 method.")
+    parser.add_argument("--phase", required=True, choices=("stage1", "stage2"))
     parser.add_argument("--dataset", required=True, choices=("animal10n", "webvision"))
     parser.add_argument("--dataset_root", required=True)
     parser.add_argument("--ilsvrc12_root", help="Required for WebVision Stage-2 final evaluation.")
@@ -411,10 +326,7 @@ def main():
     parser.add_argument("--refit_statistics", action="store_true",
                         help="Recompute margins/KNN instead of reusing matching pooled Stage-1 statistics.")
     parser.add_argument("--config", default="configs/default.yaml")
-    parser.add_argument("--baseline_config", default="configs/stage2_baselines.yaml")
     parser.add_argument("--set", dest="overrides", action="append", default=[])
-    parser.add_argument("--clipcleaner_source_backbone", choices=CLIP_BACKBONES)
-    parser.add_argument("--clipcleaner_source_hash")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     if args.partition_mode == "classwise":
@@ -429,27 +341,12 @@ def main():
     cfg = load_config(args.config, args.overrides)
     backbone = canonical_backbone_name(args.backbone)
     device = get_device(args.device or cfg["device"])
-    if args.phase == "clipcleaner" and backbone not in CLIP_BACKBONES:
-        parser.error("CLIPCleaner selection requires a CLIP backbone.")
-    if args.phase == "stage2" and args.method == "clipcleaner":
-        if not args.clipcleaner_source_backbone:
-            parser.error("CLIPCleaner Stage-2 requires --clipcleaner_source_backbone.")
-        source_backbone = canonical_backbone_name(args.clipcleaner_source_backbone)
-        source_features, source_labels = _load_split(cfg, args, source_backbone, "train")
-        if not torch.equal(source_labels, _load_split(cfg, args, backbone, "train")[1]):
-            raise ValueError("CLIPCleaner source and training backbones have different sample labels/order.")
-        actual_hash = _sha(source_features)
-        if args.clipcleaner_source_hash and not actual_hash.startswith(args.clipcleaner_source_hash):
-            raise ValueError("--clipcleaner_source_hash does not match the source CLIP cache.")
-        args.clipcleaner_source_hash = actual_hash
     features, labels = _load_split(cfg, args, backbone, "train")
     num_classes = REAL_DATASET_META[args.dataset]["num_classes"]
     feature_hash = _sha(features)
     print(f"{args.dataset}/{backbone}: train={tuple(features.shape)}, device={device}", flush=True)
     if args.phase == "stage1":
         _stage1(cfg, args, features, labels, backbone, feature_hash, num_classes)
-    elif args.phase == "clipcleaner":
-        _clipcleaner(cfg, args, features, labels, backbone, feature_hash, device)
     else:
         _stage2(cfg, args, features, labels, backbone, feature_hash, num_classes, device)
 

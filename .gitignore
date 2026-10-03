@@ -7,6 +7,19 @@
 /logs/
 /docs/
 /tests/
+
+# Local-only comparison implementations
+/THIRD_PARTY_NOTICES.md
+/configs/stage2_baselines.yaml
+/lnl_foundation/baselines/
+/lnl_foundation/partition/simifeat.py
+/lnl_foundation/results/
+/lnl_foundation/training/baseline_linear_probe.py
+/scripts/run_clean_lp.py
+/scripts/run_simifeat.py
+/scripts/run_stage1_baseline.py
+/scripts/run_stage2_baseline.py
+/scripts/summarize_ece.py
 *.pt
 *.pth
 *.ckpt

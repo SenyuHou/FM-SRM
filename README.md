@@ -93,48 +93,9 @@ python scripts/train_stage2.py \
 
 The resulting CSV files are written under `outputs/stage2/<backbone>/<dataset>/`. Accuracy, Macro-F1, Raw ECE, temperature, and calibrated ECE are reported for each seed.
 
-## 4. Baselines
-
-### 4.1 Stage-1 noisy-label detection
-
-First run FM-SRM Stage 1 for the target dataset/backbone. The baseline runners
-reuse its saved noisy-label vectors so every method is evaluated on exactly the
-same synthetic corruption; they do not use the FM-SRM Clean/Hard/Noisy
-predictions. SimiFeat then uses the cached frozen features:
-
-```bash
-python scripts/run_simifeat.py \
-  --dataset cifar10 \
-  --set backbone=vit_b16_imagenet
-```
-
-CLIPCleaner is available for CLIP backbones:
-
-```bash
-python scripts/run_stage1_baseline.py \
-  --method clipcleaner \
-  --dataset cifar10 \
-  --backbone clip_vit_b16 \
-  --device cuda:0
-```
-
-### 4.2 Stage-2 robust learning
-
-The unified frozen-feature linear-probe protocol includes CE, GCE, Co-teaching, SSR, DivideMix, DISC, and CLIPCleaner:
-
-```bash
-python scripts/run_stage2_baseline.py \
-  --method ce \
-  --dataset cifar10 \
-  --backbone vit_b16_imagenet \
-  --device cuda:0
-```
-
-Replace `ce` with `gce`, `coteaching`, `ssr`, `dividemix`, `disc`, or `clipcleaner`. A single command runs four noise settings with five seeds. CLIPCleaner requires a previously saved CLIPCleaner Stage-1 selection; it does not use the FM-SRM partition.
+## 4. Method Defaults
 
 The paper-aligned defaults use seeds `1-5`, `tau_g=0.8`, `tau_l=0.5`, `k=20`, Hard-sample GCE `q=0.7`, prototype temperature `T_p=0.1`, anchor fraction `kappa=0.1`, and calibration target `xi=0.995`.
-
-Baseline-specific hyperparameters are centralized in [configs/stage2_baselines.yaml](configs/stage2_baselines.yaml). Upstream attribution and license information are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## 5. Reusing Existing Feature Caches
 
@@ -159,14 +120,6 @@ Generated data, features, partitions, logits, and experiment outputs are ignored
 ```text
 outputs/generalization/       # FM-SRM Stage-1 partitions and metrics
 outputs/stage2/               # FM-SRM Stage-2/3 metrics and artifacts
-outputs/stage2_baselines/     # Stage-2 baseline metrics
-outputs/ece/                  # aggregated calibration reports
-```
-
-Build the standalone ECE report with:
-
-```bash
-python scripts/summarize_ece.py
 ```
 
 ## Citation
@@ -182,10 +135,6 @@ If you find this work useful, please consider citing:
 }
 ```
 
-## Acknowledgements
-
-This repository provides unified frozen-feature reproductions or adaptations of SimiFeat, CLIPCleaner, Co-teaching, SSR, DivideMix, and DISC. Their upstream attribution is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Please cite the corresponding papers when using those implementations.
-
 ## License
 
-FM-SRM is released under the [MIT License](LICENSE). Vendored or adapted third-party components remain subject to their original licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+FM-SRM is released under the [MIT License](LICENSE).
