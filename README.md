@@ -1,10 +1,10 @@
-# Learning with Noisy Labels in Foundation Model Settings via Sample Reliability Modeling
+# Reliability-Aware Learning with Noisy Labels in Foundation Model Settings
 
-Official PyTorch implementation of **FM-SRM**, a frozen-foundation-model framework for learning with noisy labels through sample reliability modeling.
+Official PyTorch implementation of **FM-SRM**, a reliability-aware method for learning with noisy labels in frozen foundation model settings.
 
 ## Abstract
 
-Label noise degrades data quality and model generalization, and learning with noisy labels (LNL) aims to mitigate the impact of incorrect supervision. With the development of pretrained foundation models, their stable and discriminative representations provide a new basis for LNL. However, most existing methods rely on end-to-end training dynamics on noisy data and are difficult to adapt directly to frozen foundation models, while existing foundation-model-based methods typically use coarse sample filtering and underexploit the reliability information in pretrained features. To address these issues, we propose a sample-reliability-based LNL method for foundation models that effectively exploits frozen pretrained features for efficient sample partitioning and robust training. First, global class relationships and local neighborhood structures are jointly exploited to hierarchically partition training samples into Clean, Hard, and Noisy subsets. Second, a lightweight linear classifier applies differentiated supervision according to sample reliability for robust utilization of different samples. Meanwhile, calibration anchors are constructed from highly reliable samples to further calibrate predictive probabilities. Theoretically, the method is analyzed from the perspectives of effective supervision bias and model learning error. Experiments across various foundation models and noise settings demonstrate stable noise detection and robust classification performance, validating the effectiveness and applicability of the proposed method.
+Label noise degrades the quality of training data for deep learning and impairs model generalization. Label-noise learning aims to mitigate the adverse effects of erroneous supervision during model training. With the rapid development of pretrained foundation models, frozen pretrained representations provide a relatively stable feature space for assessing sample reliability. However, most existing methods rely on end-to-end training with noisy data and are therefore difficult to directly adapt to scenarios with frozen foundation models. Existing foundation-model-based methods, meanwhile, often adopt relatively coarse sample selection strategies and do not fully exploit the reliability information embedded in pretrained representations. To address these limitations, we propose a reliability-aware label-noise learning method for foundation-model settings that integrates sample reliability estimation with differentiated robust learning and prediction calibration. First, in the frozen pretrained feature space, sample reliability is modeled using a global prototype margin and local neighborhood consistency, based on which the training samples are partitioned into clean, noisy, and hard subsets. Second, a lightweight linear classification head is trained with differentiated supervision according to sample reliability, enabling robust utilization of samples with different reliability levels. Meanwhile, reliable anchors are constructed from highly reliable samples to calibrate the predicted probabilities. Theoretically, we analyze the rationale of the proposed method from the perspectives of supervision bias and model learning error. Experimental results demonstrate that the proposed method achieves stable noise detection and robust classification performance across a variety of foundation models and noise settings, validating its effectiveness and applicability. The reproduction code is publicly available at [SenyuHou/FM-SRM](https://github.com/SenyuHou/FM-SRM).
 
 ## Framework
 
@@ -13,8 +13,8 @@ Label noise degrades data quality and model generalization, and learning with no
 FM-SRM has three stages:
 
 1. **Sample reliability modeling:** frozen representations, a global prototype-margin GMM, and local neighborhood consistency partition noisy training samples into Clean, Hard, and Noisy subsets.
-2. **Hierarchical robust learning:** a linear probe applies CE to Clean samples, fixed GCE (`q=0.7`) to Hard samples, and prototype-based soft correction to Noisy samples.
-3. **Reliable-anchor calibration:** high-reliability Clean anchors estimate a scalar post-hoc temperature without clean training labels or test-label tuning.
+2. **Reliability-aware hierarchical robust learning:** a linear probe applies CE to Clean samples, fixed GCE (`q=0.7`) to Hard samples, and prototype-based soft correction to Noisy samples.
+3. **Prediction calibration with reliable anchors:** high-reliability Clean anchors estimate a scalar post-hoc temperature without clean training labels or test-label tuning.
 
 ## 1. Preparing the Python Environment
 
@@ -128,7 +128,7 @@ If you find this work useful, please consider citing:
 
 ```bibtex
 @misc{hou2026fmsrm,
-  title  = {Learning with Noisy Labels in Foundation Model Settings via Sample Reliability Modeling},
+  title  = {Reliability-Aware Learning with Noisy Labels in Foundation Model Settings},
   author = {Senyu Hou and Gaoxia Jiang and Wenjian Wang},
   year   = {2026},
   note   = {Code available at https://github.com/SenyuHou/FM-SRM}
